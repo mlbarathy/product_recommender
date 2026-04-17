@@ -219,7 +219,7 @@
     function showRecBanner(type, message) {
       const b = document.getElementById('bannerRec')
       b.classList.remove('hidden', 'bg-amber-50', 'border-amber-200', 'text-amber-900', 'bg-red-50', 'border-red-200', 'text-red-800')
-      b.classList.add(type === 'error' ? 'bg-red-50 border-red-200 text-red-800' : 'bg-amber-50 border-amber-200 text-amber-900')
+      b.classList.add(...(type === 'error' ? 'bg-red-50 border-red-200 text-red-800' : 'bg-amber-50 border-amber-200 text-amber-900').split(' '));
       b.textContent = message
       b.classList.remove('hidden')
     }
