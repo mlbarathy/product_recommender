@@ -37,6 +37,7 @@ app.add_middleware(
 )
 
 recommender: ProductRecommender | None = None
+_recommender_init_lock = threading.Lock()
 
 _download_lock = threading.Lock()
 _download_state: dict[str, Any] = {
@@ -97,14 +98,15 @@ def _normalize_download_state_if_dataset_missing() -> None:
 
 def _reload_recommender() -> None:
     global recommender
-    if PRODUCTS_SQLITE.is_file():
-        try:
-            recommender = ProductRecommender(str(PRODUCTS_SQLITE))
-        except Exception as exc:  # pragma: no cover
-            print("Recommender reload failed:", exc)
+    with _recommender_init_lock:
+        if PRODUCTS_SQLITE.is_file():
+            try:
+                recommender = ProductRecommender(str(PRODUCTS_SQLITE))
+            except Exception as exc:  # pragma: no cover
+                print("Recommender reload failed:", exc)
+                recommender = None
+        else:
             recommender = None
-    else:
-        recommender = None
 
 
 def _download_worker() -> None:
@@ -134,7 +136,12 @@ def _download_worker() -> None:
 def _startup():
     global recommender
     if PRODUCTS_SQLITE.is_file():
-        recommender = ProductRecommender(str(PRODUCTS_SQLITE))
+        try:
+            with _recommender_init_lock:
+                recommender = ProductRecommender(str(PRODUCTS_SQLITE))
+        except Exception as exc:  # pragma: no cover
+            print("Startup recommender load failed; will lazy-load on first /recommend or /compare:", exc)
+            recommender = None
     else:
         print("No products_details.sqlite — recommendation endpoints disabled until data exists.")
 
@@ -275,20 +282,31 @@ def read_csv_page(path: Path, page: int, per_page: int) -> tuple[list[str], list
 
 
 def _require_recommender() -> ProductRecommender:
-    if recommender is None:
-        if PRODUCTS_SQLITE.is_file():
-            raise HTTPException(
-                503,
-                detail=(
-                    "Recommendation models are still loading (first run can take several minutes). "
-                    "Wait until the server log shows 'Product recommender ready', then try again."
-                ),
-            )
+    """
+    Return the in-memory recommender, loading it on first use if the SQLite file exists
+    but startup or reload did not populate `recommender` (failed load, new file on disk, etc.).
+    """
+    global recommender
+    if recommender is not None:
+        return recommender
+    if not PRODUCTS_SQLITE.is_file():
         raise HTTPException(
             503,
             detail="Recommendation engine not loaded. Add data/products_details.sqlite and restart.",
         )
-    return recommender
+    with _recommender_init_lock:
+        if recommender is not None:
+            return recommender
+        try:
+            print("Loading ProductRecommender (lazy init)…")
+            recommender = ProductRecommender(str(PRODUCTS_SQLITE))
+            return recommender
+        except Exception as exc:
+            print("ProductRecommender lazy load failed:", exc)
+            raise HTTPException(
+                503,
+                detail=f"Could not load recommendation engine: {exc}",
+            ) from exc
 
 
 class RecommendRequest(BaseModel):
