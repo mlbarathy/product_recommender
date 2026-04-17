@@ -1,0 +1,684 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Product Match — catalog & recommendations</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            brand: {
+              primary: '#088395',
+              secondary: '#7AB2B2',
+              canvas: '#EBF4F6',
+            },
+          },
+        },
+      },
+    }
+  </script>
+  <style>
+    .table-wrap { overflow: auto; max-height: calc(100vh - 18rem); }
+    table.data-table { table-layout: fixed; width: max-content; min-width: 100%; }
+    table.data-table th, table.data-table td {
+      width: 14rem; max-width: 14rem; vertical-align: top; box-sizing: border-box;
+    }
+    table.data-table td { padding: 0; }
+    table.data-table th.col-image, table.data-table td.col-image { width: 7.8rem; max-width: 7.8rem; }
+    table.data-table tbody tr + tr td { padding-top: 0.5rem; }
+    table.data-table .cell-scroll {
+      --fs: 0.75rem; --lh: 1.35; --lines: 3;
+      font-size: var(--fs); line-height: var(--lh); white-space: normal;
+      width: 100%; box-sizing: border-box; padding: 0.25rem 0.5rem;
+      height: calc(var(--lines) * var(--fs) * var(--lh) + 0.5rem);
+      max-height: calc(var(--lines) * var(--fs) * var(--lh) + 0.5rem);
+      overflow-x: hidden; overflow-y: auto; overflow-wrap: anywhere; word-break: break-word;
+      scrollbar-width: thin;
+    }
+    table.data-table .cell-scroll a {
+      white-space: normal; display: block; overflow-wrap: anywhere; word-break: break-all;
+      line-height: var(--lh); margin-bottom: 0.125rem;
+    }
+    table.data-table .cell-scroll a:last-child { margin-bottom: 0; }
+    table.data-table .cell-scroll::-webkit-scrollbar { height: 8px; width: 8px; }
+    table.data-table .cell-scroll::-webkit-scrollbar-thumb { background: #7AB2B2; border-radius: 4px; }
+    table.data-table .cell-scroll::-webkit-scrollbar-track { background: #EBF4F6; border-radius: 4px; }
+    table.data-table .cell-scroll.cell-scroll--image {
+      --img-preview-h: 6.6rem; display: flex; flex-direction: row; flex-wrap: nowrap;
+      align-items: center; justify-content: center;
+      height: calc(var(--img-preview-h) + 0.5rem);
+      max-height: calc(var(--img-preview-h) + 0.5rem);
+      min-height: calc(var(--img-preview-h) + 0.5rem);
+      overflow-x: auto; overflow-y: auto;
+    }
+    table.data-table td.col-image .cell-scroll img {
+      flex: 0 0 auto; max-height: var(--img-preview-h); max-width: 100%;
+      width: auto; height: auto; object-fit: contain; border-radius: 0.25rem; border: 1px solid #c5dddf;
+    }
+    .tab-active { border-bottom-color: #088395; color: #088395; }
+    .tab-inactive { border-bottom-color: transparent; color: #5c898e; }
+  </style>
+</head>
+<body class="bg-brand-canvas text-[#053e45] min-h-screen">
+  <header class="border-b border-[#c5dddf] bg-white shadow-sm">
+    <div class="max-w-[1600px] mx-auto px-4 py-4">
+      <h1 class="text-xl font-semibold text-[#053e45]">Product Recommender System</h1>
+      <p class="text-sm text-[#356a6f] mt-1">One App (FastAPI). Compare <strong>Five Embeddings</strong> on Products.</p>
+      <nav class="mt-4 flex gap-1 border-b border-[#c5dddf]">
+        <button type="button" id="tabCatalog" class="tab-active px-4 py-2 text-sm font-semibold border-b-2 -mb-px">Catalog</button>
+        <button type="button" id="tabRecommend" class="tab-inactive px-4 py-2 text-sm font-semibold border-b-2 -mb-px disabled:opacity-40 disabled:cursor-not-allowed">Recommend</button>
+      </nav>
+    </div>
+  </header>
+
+  <main class="max-w-[1600px] mx-auto px-4 py-6 space-y-4">
+    <section id="datasetGate" class="hidden bg-amber-50 border border-amber-200 rounded-lg p-4 shadow-sm space-y-3">
+      <div class="flex flex-wrap items-start justify-between gap-3">
+        <div class="min-w-0 flex-1">
+          <h2 class="text-sm font-semibold text-amber-900">Dataset not found</h2>
+          <p class="text-xs text-amber-800 mt-1">Place <code class="text-[11px] bg-white/80 px-1 rounded border border-amber-200/80">products_details.sqlite</code> under server <code class="text-[11px] bg-white/80 px-1 rounded border border-amber-200/80">data/</code>, or download it here. First download may take several minutes.</p>
+        </div>
+        <div class="flex flex-wrap gap-2 shrink-0">
+          <button type="button" id="btnDownloadDataset" class="bg-brand-primary hover:bg-[#067080] text-white text-sm font-medium px-4 py-2 rounded-md disabled:opacity-40 disabled:cursor-not-allowed">Download dataset</button>
+          <button type="button" id="btnRetryDataset" class="hidden border border-amber-700 text-amber-950 bg-white hover:bg-amber-100 text-sm font-medium px-4 py-2 rounded-md">Retry</button>
+        </div>
+      </div>
+      <p id="datasetStatusLine" class="text-sm text-amber-950"></p>
+      <div class="w-full bg-white/80 border border-amber-200 rounded-full h-2.5 overflow-hidden">
+        <div id="datasetProgressFill" class="h-full bg-brand-primary transition-[width] duration-500 ease-out rounded-full" style="width:0%"></div>
+      </div>
+      <p id="datasetErrorLine" class="hidden text-xs text-red-800 whitespace-pre-wrap border border-red-200 bg-red-50 rounded-md px-3 py-2"></p>
+    </section>
+
+    <!-- Catalog -->
+    <section id="panelCatalog" class="space-y-4">
+      <div class="flex flex-wrap items-end gap-4 bg-white border border-[#c5dddf] rounded-lg p-4 shadow-sm">
+        <div>
+          <label class="block text-xs font-medium text-[#5c898e] mb-1">Data file</label>
+          <select id="fileSelect" class="border border-[#c5dddf] rounded-md px-3 py-2 text-sm min-w-[240px] bg-white focus:ring-1 focus:ring-brand-primary focus:border-brand-primary"></select>
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-[#5c898e] mb-1">Rows per page</label>
+          <select id="perPage" class="border border-[#c5dddf] rounded-md px-3 py-2 text-sm bg-white focus:ring-1 focus:ring-brand-primary focus:border-brand-primary">
+            <option value="10">10</option>
+            <option value="25" selected>25</option>
+            <option value="50">50</option>
+            <option value="100">100</option>
+          </select>
+        </div>
+        <button type="button" id="loadBtn" class="ml-auto bg-brand-primary hover:bg-[#067080] text-white text-sm font-medium px-4 py-2 rounded-md">Load</button>
+      </div>
+      <div id="bannerCat" class="hidden text-sm rounded-md px-4 py-3 border"></div>
+      <div class="bg-white border border-[#c5dddf] rounded-lg shadow-sm overflow-hidden">
+        <div class="table-wrap">
+          <table class="data-table w-full text-sm border-collapse">
+            <thead id="thead" class="bg-brand-canvas sticky top-0 z-10"></thead>
+            <tbody id="tbody"></tbody>
+          </table>
+        </div>
+      </div>
+      <div class="flex items-center justify-between gap-4 flex-wrap">
+        <button type="button" id="prevBtn" class="border border-[#c5dddf] bg-white hover:bg-brand-canvas text-[#356a6f] text-sm font-medium px-4 py-2 rounded-md disabled:opacity-40 disabled:cursor-not-allowed">Previous</button>
+        <span id="pageInfo" class="text-sm text-[#356a6f]"></span>
+        <button type="button" id="nextBtn" class="border border-[#c5dddf] bg-white hover:bg-brand-canvas text-[#356a6f] text-sm font-medium px-4 py-2 rounded-md disabled:opacity-40 disabled:cursor-not-allowed">Next</button>
+      </div>
+    </section>
+
+    <!-- Recommend -->
+    <section id="panelRecommend" class="hidden space-y-4">
+      <div class="bg-white border border-[#c5dddf] rounded-lg shadow-sm overflow-hidden">
+        <div class="bg-brand-canvas border-b border-[#c5dddf] px-4 py-3">
+          <h2 class="text-sm font-semibold text-[#053e45]">Similar products</h2>
+          <p class="text-xs text-[#356a6f] mt-0.5">Pick a product, choose an embedding, then <strong>Recommend</strong> or <strong>Compare all five</strong>.</p>
+        </div>
+        <div class="p-4 grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <div>
+            <label class="block text-xs font-medium text-[#5c898e] mb-1">Product</label>
+            <select id="productSelect" class="border border-[#c5dddf] rounded-md px-3 py-2 text-sm w-full bg-white max-h-48 focus:ring-1 focus:ring-brand-primary focus:border-brand-primary"></select>
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-[#5c898e] mb-1">Method</label>
+            <select id="methodSelect" class="border border-[#c5dddf] rounded-md px-3 py-2 text-sm w-full bg-white focus:ring-1 focus:ring-brand-primary focus:border-brand-primary">
+              <option value="bow">Bag of Words</option>
+              <option value="tfidf" selected>TF-IDF</option>
+              <option value="word2vec">Word2Vec</option>
+              <option value="glove">GloVe</option>
+              <option value="fasttext">FastText</option>
+            </select>
+          </div>
+        </div>
+        <div class="px-4 pb-4 flex flex-col sm:flex-row gap-3 border-t border-[#c5dddf] bg-brand-canvas/80 pt-4">
+          <button type="button" id="btnRecommend" class="flex-1 bg-brand-primary hover:bg-[#067080] text-white text-sm font-medium px-4 py-2.5 rounded-md disabled:opacity-40">Recommend</button>
+          <button type="button" id="btnCompare" class="flex-1 border border-brand-primary text-[#066b78] bg-white hover:bg-brand-canvas text-sm font-medium px-4 py-2.5 rounded-md disabled:opacity-40">Compare all 5 methods</button>
+        </div>
+      </div>
+
+      <div id="bannerRec" class="hidden text-sm rounded-md px-4 py-3 border"></div>
+
+      <div id="recSingle" class="hidden bg-white border border-[#c5dddf] rounded-lg shadow-sm p-4">
+        <h3 class="text-sm font-semibold text-[#053e45] mb-3">Top matches</h3>
+        <div id="recGrid" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3"></div>
+      </div>
+
+      <div id="recCompare" class="hidden bg-white border border-[#c5dddf] rounded-lg shadow-sm p-4 space-y-6">
+        <h3 class="text-sm font-semibold text-[#053e45]">All methods</h3>
+        <div id="compareBlocks"></div>
+      </div>
+
+      <div class="bg-white border border-[#c5dddf] rounded-lg shadow-sm overflow-hidden">
+        <div class="bg-brand-canvas border-b border-[#c5dddf] px-4 py-3">
+          <h3 class="text-sm font-semibold text-[#053e45]">How each method works (product text)</h3>
+        </div>
+        <div class="p-4 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-3">
+          <div class="rounded-lg p-3 border border-[#088395]/25 bg-brand-canvas">
+            <div class="font-semibold text-sm text-brand-primary mb-1">Bag of Words</div>
+            <p class="text-[11px] text-[#356a6f] leading-snug">Count word occurrences → sparse vector → cosine sim</p>
+          </div>
+          <div class="rounded-lg p-3 border border-brand-secondary/50 bg-white">
+            <div class="font-semibold text-sm text-brand-secondary mb-1">TF-IDF</div>
+            <p class="text-[11px] text-[#356a6f] leading-snug">Count × rarity weight → rare words matter more → cosine sim</p>
+          </div>
+          <div class="rounded-lg p-3 border border-[#088395]/25 bg-brand-canvas">
+            <div class="font-semibold text-sm text-brand-primary mb-1">Word2Vec</div>
+            <p class="text-[11px] text-[#356a6f] leading-snug">Google News 300d vectors → dense semantic space → cosine sim</p>
+          </div>
+          <div class="rounded-lg p-3 border border-brand-secondary/50 bg-white">
+            <div class="font-semibold text-sm text-brand-secondary mb-1">GloVe</div>
+            <p class="text-[11px] text-[#356a6f] leading-snug">Global co-occurrence → 50d pre-trained vectors → cosine sim</p>
+          </div>
+          <div class="rounded-lg p-3 border border-[#088395]/35 bg-brand-canvas">
+            <div class="font-semibold text-sm text-[#066b78] mb-1">FastText</div>
+            <p class="text-[11px] text-[#356a6f] leading-snug">Wiki News 300d + char n-grams → handles OOV words → cosine sim</p>
+          </div>
+        </div>
+        <div class="px-4 py-2 border-t border-[#c5dddf] bg-brand-canvas text-xs text-[#5c898e] text-center">
+          Cosine similarity ranks products by vector angle — same measure for all five representations.
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const API = ''
+    let page = 1
+
+    function showCatBanner(type, message) {
+      const b = document.getElementById('bannerCat')
+      b.classList.remove('hidden', 'bg-amber-50', 'border-amber-200', 'text-amber-900', 'bg-red-50', 'border-red-200', 'text-red-800', 'bg-emerald-50', 'border-emerald-200', 'text-emerald-900')
+      if (type === 'error') b.classList.add('bg-red-50', 'border-red-200', 'text-red-800')
+      else if (type === 'success') b.classList.add('bg-emerald-50', 'border-emerald-200', 'text-emerald-900')
+      else b.classList.add('bg-amber-50', 'border-amber-200', 'text-amber-900')
+      b.textContent = message
+      b.classList.remove('hidden')
+    }
+    function hideCatBanner() { document.getElementById('bannerCat').classList.add('hidden') }
+
+    function showRecBanner(type, message) {
+      const b = document.getElementById('bannerRec')
+      b.classList.remove('hidden', 'bg-amber-50', 'border-amber-200', 'text-amber-900', 'bg-red-50', 'border-red-200', 'text-red-800')
+      b.classList.add(type === 'error' ? 'bg-red-50 border-red-200 text-red-800' : 'bg-amber-50 border-amber-200 text-amber-900')
+      b.textContent = message
+      b.classList.remove('hidden')
+    }
+    function hideRecBanner() { document.getElementById('bannerRec').classList.add('hidden') }
+
+    function linkNorm(col) { return (col || '').trim().toLowerCase().replace(/_/g, ' ') }
+    function isLinkColumn(col) {
+      const n = linkNorm(col)
+      return n === 'variants' || n === 'product url'
+    }
+    function parseUrlsInText(text) {
+      if (!text || typeof text !== 'string') return []
+      const seen = new Set(), out = []
+      const push = (u) => {
+        const s = u.trim()
+        if (!s || seen.has(s) || !/^https?:\/\//i.test(s)) return
+        seen.add(s); out.push(s)
+      }
+      for (const line of text.split(/\r?\n/)) {
+        for (const part of line.split('|')) {
+          const seg = part.trim()
+          if (!seg) continue
+          if (/^https?:\/\//i.test(seg)) { push(seg); continue }
+          for (const c of seg.split(',')) push(c)
+        }
+      }
+      return out
+    }
+    function isImageCol(col) { return col.trim().toLowerCase() === 'image' }
+
+    function fillCell(td, col, value) {
+      const wrap = document.createElement('div')
+      wrap.className = 'cell-scroll'
+      wrap.setAttribute('tabindex', '0')
+      const v = value ?? ''
+      const imgCol = isImageCol(col)
+      if (typeof v === 'string' && v.startsWith('data:image/')) {
+        wrap.classList.add('cell-scroll--image')
+        const img = document.createElement('img')
+        img.src = v; img.alt = 'Product'; img.loading = 'lazy'
+        img.className = 'rounded border border-[#c5dddf] object-contain bg-white'
+        wrap.appendChild(img); td.appendChild(wrap); return
+      }
+      if (imgCol) wrap.classList.add('cell-scroll--image')
+      if (isLinkColumn(col)) {
+        const urls = parseUrlsInText(v)
+        if (urls.length) {
+          urls.forEach((href) => {
+            const a = document.createElement('a')
+            a.href = href; a.target = '_blank'; a.rel = 'noopener noreferrer'
+            a.className = 'text-brand-primary hover:text-[#067080] underline'
+            a.textContent = href
+            wrap.appendChild(a)
+          })
+        } else wrap.textContent = v
+        td.appendChild(wrap); return
+      }
+      wrap.textContent = v
+      td.appendChild(wrap)
+    }
+
+    function renderTable(columns, rows) {
+      const thead = document.getElementById('thead')
+      const tbody = document.getElementById('tbody')
+      thead.innerHTML = ''
+      const hr = document.createElement('tr')
+      for (const col of columns) {
+        const th = document.createElement('th')
+        th.className = 'text-left font-semibold text-[#356a6f] border-b border-[#c5dddf] px-3 py-2 whitespace-nowrap' + (isImageCol(col) ? ' col-image' : '')
+        th.textContent = col
+        hr.appendChild(th)
+      }
+      thead.appendChild(hr)
+      tbody.innerHTML = ''
+      for (const row of rows) {
+        const tr = document.createElement('tr')
+        tr.className = 'border-b border-[#e8f2f4] hover:bg-brand-canvas/90'
+        for (const col of columns) {
+          const td = document.createElement('td')
+          td.className = 'text-[#053e45] border-b border-brand-canvas text-xs' + (isImageCol(col) ? ' col-image' : '')
+          fillCell(td, col, row[col])
+          tr.appendChild(td)
+        }
+        tbody.appendChild(tr)
+      }
+    }
+
+    function applyFilesToSelect(files) {
+      const fileSelect = document.getElementById('fileSelect')
+      fileSelect.innerHTML = ''
+      if (!files || files.length === 0) {
+        showCatBanner('warn', 'No data files in data/.')
+        return false
+      }
+      hideCatBanner()
+      const preferred = 'products_details.sqlite'
+      for (const f of files) {
+        const opt = document.createElement('option')
+        opt.value = f; opt.textContent = f
+        fileSelect.appendChild(opt)
+      }
+      if (files.includes(preferred)) fileSelect.value = preferred
+      return true
+    }
+
+    async function fetchFiles() {
+      const r = await fetch(API + '/files')
+      if (!r.ok) throw new Error('Could not list files')
+      const data = await r.json()
+      return applyFilesToSelect(data.files)
+    }
+
+    function setCatalogEnabled(on) {
+      for (const id of ['fileSelect', 'perPage', 'loadBtn', 'prevBtn', 'nextBtn']) {
+        const el = document.getElementById(id)
+        if (el) el.disabled = !on
+      }
+      const tr = document.getElementById('tabRecommend')
+      if (tr) tr.disabled = !on
+    }
+
+    let downloadPollTimer = null
+    /** True after POST /download-dataset accepted until gate hides or download fails. */
+    let datasetDownloadPending = false
+    let finalizingDatasetInstall = false
+
+    function stopDownloadPoll() {
+      if (downloadPollTimer) {
+        clearInterval(downloadPollTimer)
+        downloadPollTimer = null
+      }
+    }
+
+    function resetDatasetProgressUi() {
+      document.getElementById('datasetProgressFill').style.width = '0%'
+    }
+
+    async function refreshDatasetFromServer() {
+      const r = await fetch(API + '/check-dataset')
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || r.statusText || 'Could not check dataset')
+      const data = await r.json()
+      const gate = document.getElementById('datasetGate')
+      if (data.dataset_available) {
+        datasetDownloadPending = false
+        gate.classList.add('hidden')
+        stopDownloadPoll()
+        setCatalogEnabled(true)
+        document.getElementById('btnDownloadDataset').disabled = false
+        document.getElementById('btnRetryDataset').classList.add('hidden')
+        document.getElementById('datasetErrorLine').classList.add('hidden')
+        document.getElementById('datasetErrorLine').textContent = ''
+        const ok = applyFilesToSelect(data.files || [])
+        if (ok) {
+          try {
+            await loadPage(1)
+          } catch (e) {
+            showCatBanner('error', e.message || String(e))
+          }
+        }
+        if (!document.getElementById('panelRecommend').classList.contains('hidden')) {
+          loadProductsForRecommend()
+        }
+      } else {
+        datasetDownloadPending = false
+        gate.classList.remove('hidden')
+        setCatalogEnabled(false)
+        document.getElementById('btnDownloadDataset').disabled = false
+        document.getElementById('btnRetryDataset').classList.add('hidden')
+        resetDatasetProgressUi()
+        document.getElementById('datasetStatusLine').textContent = 'Dataset not found. Download to enable catalog and recommendations.'
+        document.getElementById('fileSelect').innerHTML = ''
+        document.getElementById('tbody').innerHTML = ''
+        document.getElementById('pageInfo').textContent = ''
+        document.getElementById('prevBtn').disabled = true
+        document.getElementById('nextBtn').disabled = true
+      }
+    }
+
+    async function finalizeDatasetAfterInstall() {
+      if (finalizingDatasetInstall) return
+      finalizingDatasetInstall = true
+      const errEl = document.getElementById('datasetErrorLine')
+      try {
+        datasetDownloadPending = false
+        stopDownloadPoll()
+        document.getElementById('btnDownloadDataset').disabled = false
+        document.getElementById('datasetProgressFill').style.width = '100%'
+        document.getElementById('datasetStatusLine').textContent = 'Completed'
+        let lastErr = null
+        for (let attempt = 0; attempt < 8; attempt++) {
+          try {
+            await refreshDatasetFromServer()
+            showCatBanner('success', 'Dataset ready for use')
+            return
+          } catch (e) {
+            lastErr = e
+            await new Promise((resolve) => setTimeout(resolve, 350))
+          }
+        }
+        errEl.textContent = (lastErr && lastErr.message) ? ('Download finished but UI refresh failed: ' + lastErr.message) : 'Download finished but UI refresh failed.'
+        errEl.classList.remove('hidden')
+      } finally {
+        finalizingDatasetInstall = false
+      }
+    }
+
+    async function startDatasetDownload() {
+      const errEl = document.getElementById('datasetErrorLine')
+      errEl.classList.add('hidden')
+      errEl.textContent = ''
+      try {
+        await refreshDatasetFromServer()
+      } catch (e) {
+        showCatBanner('error', e.message || String(e))
+        return
+      }
+      if (document.getElementById('datasetGate').classList.contains('hidden')) {
+        return
+      }
+      document.getElementById('btnDownloadDataset').disabled = true
+      document.getElementById('btnRetryDataset').classList.add('hidden')
+      document.getElementById('datasetStatusLine').textContent = 'Starting download…'
+      resetDatasetProgressUi()
+      try {
+        const r = await fetch(API + '/download-dataset', { method: 'POST' })
+        const body = await r.json().catch(() => ({}))
+        if (r.status === 400) {
+          document.getElementById('btnDownloadDataset').disabled = false
+          datasetDownloadPending = false
+          await refreshDatasetFromServer()
+          showCatBanner('success', 'Dataset ready for use')
+          return
+        }
+        if (r.status === 409) {
+          document.getElementById('datasetStatusLine').textContent = 'Download already in progress — showing status.'
+        } else if (!r.ok) {
+          throw new Error(typeof body.detail === 'string' ? body.detail : r.statusText)
+        }
+      } catch (e) {
+        datasetDownloadPending = false
+        document.getElementById('datasetStatusLine').textContent = 'Could not start download.'
+        errEl.textContent = e.message || String(e)
+        errEl.classList.remove('hidden')
+        document.getElementById('btnDownloadDataset').disabled = false
+        document.getElementById('btnRetryDataset').classList.remove('hidden')
+        return
+      }
+
+      datasetDownloadPending = true
+      stopDownloadPoll()
+      const tick = async () => {
+        if (!datasetDownloadPending) return
+        try {
+          const chk = await fetch(API + '/check-dataset')
+          if (chk.ok) {
+            const d = await chk.json()
+            if (d.dataset_available) {
+              await finalizeDatasetAfterInstall()
+              return
+            }
+          }
+          const sr = await fetch(API + '/download-status')
+          if (!sr.ok) return
+          const st = await sr.json()
+          const pct = Math.max(0, Math.min(100, Number(st.progress) || 0))
+          document.getElementById('datasetProgressFill').style.width = pct + '%'
+          const msg = (st.message && String(st.message)) || ''
+          if (st.status === 'downloading') {
+            document.getElementById('datasetStatusLine').textContent = msg || 'Downloading…'
+          } else if (st.status === 'completed') {
+            await finalizeDatasetAfterInstall()
+          } else if (st.status === 'failed') {
+            datasetDownloadPending = false
+            document.getElementById('datasetStatusLine').textContent = 'Failed'
+            stopDownloadPoll()
+            document.getElementById('btnDownloadDataset').disabled = false
+            document.getElementById('btnRetryDataset').classList.remove('hidden')
+            errEl.textContent = (st.error && String(st.error)) || (st.message && String(st.message)) || 'Download failed.'
+            errEl.classList.remove('hidden')
+          }
+        } catch (e) {
+          if (datasetDownloadPending) {
+            console.warn('download poll', e)
+          }
+        }
+      }
+      await tick()
+      downloadPollTimer = setInterval(tick, 600)
+    }
+
+    async function loadPage(p) {
+      const fileSelect = document.getElementById('fileSelect')
+      const perPage = document.getElementById('perPage')
+      const name = fileSelect.value
+      if (!name) return
+      page = p
+      hideCatBanner()
+      document.getElementById('tbody').innerHTML = '<tr><td class="p-4 text-[#5c898e]">Loading…</td></tr>'
+      const url = new URL(API + '/table/' + encodeURIComponent(name), window.location.origin)
+      url.searchParams.set('page', String(page))
+      url.searchParams.set('per_page', perPage.value)
+      const r = await fetch(url)
+      if (!r.ok) {
+        const err = await r.json().catch(() => ({}))
+        showCatBanner('error', (typeof err.detail === 'string' ? err.detail : null) || r.statusText)
+        document.getElementById('tbody').innerHTML = ''
+        return
+      }
+      const data = await r.json()
+      renderTable(data.columns, data.rows)
+      document.getElementById('pageInfo').textContent = 'Page ' + data.page + ' · ' + data.rows.length + ' row(s)' + (data.has_more ? ' · more' : ' · end')
+      document.getElementById('prevBtn').disabled = data.page <= 1
+      document.getElementById('nextBtn').disabled = !data.has_more
+    }
+
+    function apiErrorDetail(err) {
+      const d = err && err.detail
+      if (typeof d === 'string') return d
+      if (Array.isArray(d)) return d.map((x) => (x && (x.msg || x.message)) || String(x)).join('; ')
+      return null
+    }
+
+    async function loadProductsForRecommend() {
+      const sel = document.getElementById('productSelect')
+      sel.innerHTML = ''
+      try {
+        const r = await fetch(API + '/products')
+        if (!r.ok) {
+          const err = await r.json().catch(() => ({}))
+          showRecBanner('warn', apiErrorDetail(err) || 'Recommendations need data/products_details.sqlite and server restart.')
+          return
+        }
+        const data = await r.json()
+        hideRecBanner()
+        for (const p of data.products || []) {
+          const opt = document.createElement('option')
+          opt.value = String(p.id)
+          opt.textContent = p.name + (p.uniq_id ? ' · ' + String(p.uniq_id).slice(0, 8) : '')
+          sel.appendChild(opt)
+        }
+        if (data.models_ready === false) {
+          showRecBanner('warn', 'Similarity models are still loading in the background (first run can take several minutes). Pick a product now; use Recommend after the server log shows "Product recommender ready".')
+        }
+      } catch (e) {
+        showRecBanner('error', e.message)
+      }
+    }
+
+    function cardHtml(item) {
+      const pct = Math.round((item.similarity || 0) * 100)
+      const img = item.image ? '<img src="' + item.image + '" class="w-full h-20 object-contain rounded border border-[#c5dddf] mb-1" alt=""/>' : ''
+      return '<div class="border border-[#c5dddf] rounded-lg p-2 text-center bg-brand-canvas/80">' +
+        img +
+        '<div class="text-[11px] font-medium text-[#053e45] line-clamp-2 leading-tight">' + escapeHtml(item.name) + '</div>' +
+        '<div class="text-xs text-brand-primary font-semibold mt-1">' + pct + '%</div>' +
+        (item.price ? '<div class="text-[10px] text-[#5c898e] mt-0.5">' + escapeHtml(String(item.price)) + '</div>' : '') +
+        '</div>'
+    }
+    function escapeHtml(s) {
+      const d = document.createElement('div')
+      d.textContent = s
+      return d.innerHTML
+    }
+
+    async function doRecommend() {
+      const id = parseInt(document.getElementById('productSelect').value, 10)
+      const method = document.getElementById('methodSelect').value
+      if (Number.isNaN(id)) return
+      hideRecBanner()
+      document.getElementById('recCompare').classList.add('hidden')
+      const btn = document.getElementById('btnRecommend')
+      btn.disabled = true
+      try {
+        const r = await fetch(API + '/recommend', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ product_id: id, method, top_n: 10 }),
+        })
+        const data = await r.json().catch(() => ({}))
+        if (!r.ok) {
+          showRecBanner('error', data.detail || r.statusText)
+          document.getElementById('recSingle').classList.add('hidden')
+          return
+        }
+        document.getElementById('recGrid').innerHTML = (data.recommendations || []).map(cardHtml).join('')
+        document.getElementById('recSingle').classList.remove('hidden')
+      } finally {
+        btn.disabled = false
+      }
+    }
+
+    async function doCompare() {
+      const id = parseInt(document.getElementById('productSelect').value, 10)
+      if (Number.isNaN(id)) return
+      hideRecBanner()
+      document.getElementById('recSingle').classList.add('hidden')
+      const btn = document.getElementById('btnCompare')
+      btn.disabled = true
+      const colors = { bow: '#088395', tfidf: '#7AB2B2', word2vec: '#066b78', glove: '#0a9bb0', fasttext: '#5a9fa0' }
+      const labels = { bow: 'Bag of Words', tfidf: 'TF-IDF', word2vec: 'Word2Vec', glove: 'GloVe', fasttext: 'FastText' }
+      try {
+        const r = await fetch(API + '/compare', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ product_id: id, top_n: 8 }),
+        })
+        const data = await r.json().catch(() => ({}))
+        if (!r.ok) {
+          showRecBanner('error', data.detail || r.statusText)
+          document.getElementById('recCompare').classList.add('hidden')
+          return
+        }
+        let html = ''
+        for (const m of ['bow', 'tfidf', 'word2vec', 'glove', 'fasttext']) {
+          const recs = data.results[m] || []
+          html += '<div><div class="flex items-center gap-2 mb-2"><span class="w-2.5 h-2.5 rounded-full" style="background:' + colors[m] + '"></span>' +
+            '<span class="text-sm font-semibold text-[#053e45]">' + labels[m] + '</span></div>' +
+            '<div class="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-8 gap-2">' +
+            recs.map(cardHtml).join('') + '</div></div>'
+        }
+        document.getElementById('compareBlocks').innerHTML = html
+        document.getElementById('recCompare').classList.remove('hidden')
+      } finally {
+        btn.disabled = false
+      }
+    }
+
+    function setTab(which) {
+      const cat = document.getElementById('panelCatalog')
+      const rec = document.getElementById('panelRecommend')
+      const bCat = document.getElementById('tabCatalog')
+      const bRec = document.getElementById('tabRecommend')
+      if (which === 'catalog') {
+        cat.classList.remove('hidden')
+        rec.classList.add('hidden')
+        bCat.classList.add('tab-active'); bCat.classList.remove('tab-inactive')
+        bRec.classList.add('tab-inactive'); bRec.classList.remove('tab-active')
+      } else {
+        cat.classList.add('hidden')
+        rec.classList.remove('hidden')
+        bRec.classList.add('tab-active'); bRec.classList.remove('tab-inactive')
+        bCat.classList.add('tab-inactive'); bCat.classList.remove('tab-active')
+        loadProductsForRecommend()
+      }
+    }
+
+    document.getElementById('tabCatalog').addEventListener('click', () => setTab('catalog'))
+    document.getElementById('tabRecommend').addEventListener('click', () => setTab('recommend'))
+    document.getElementById('loadBtn').addEventListener('click', () => loadPage(1))
+    document.getElementById('prevBtn').addEventListener('click', () => loadPage(page - 1))
+    document.getElementById('nextBtn').addEventListener('click', () => loadPage(page + 1))
+    document.getElementById('btnRecommend').addEventListener('click', doRecommend)
+    document.getElementById('btnCompare').addEventListener('click', doCompare)
+
+    document.getElementById('btnDownloadDataset').addEventListener('click', startDatasetDownload)
+    document.getElementById('btnRetryDataset').addEventListener('click', startDatasetDownload)
+
+    fetch(API + '/health').catch(() => {})
+    refreshDatasetFromServer().catch((e) => showCatBanner('error', e.message))
+  </script>
+</body>
+</html>
